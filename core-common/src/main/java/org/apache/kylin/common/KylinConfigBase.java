@@ -2267,6 +2267,10 @@ public abstract class KylinConfigBase implements Serializable {
         return Boolean.parseBoolean(getOptional("kylin.stream.auto.just.by.timezone", "false"));
     }
 
+    public boolean dropBuildjobWhileDisableStreamingCube() {
+        return Boolean.parseBoolean(getOptional("kylin.stream.auto-drop-segments-enabled", "false"));
+    }
+
     // ============================================================================
     // Health Check CLI
     // ============================================================================
