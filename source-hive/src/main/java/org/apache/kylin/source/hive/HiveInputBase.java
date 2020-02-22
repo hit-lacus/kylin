@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -40,6 +41,7 @@ import org.apache.kylin.cube.CubeManager;
 import org.apache.kylin.cube.model.CubeDesc;
 import org.apache.kylin.engine.mr.IInput;
 import org.apache.kylin.engine.mr.JobBuilderSupport;
+import org.apache.kylin.engine.mr.common.BatchConstants;
 import org.apache.kylin.engine.mr.steps.CubingExecutableUtil;
 import org.apache.kylin.job.JoinedFlatTable;
 import org.apache.kylin.job.common.ShellExecutable;
@@ -90,8 +92,9 @@ public class HiveInputBase {
 
             // create global dict
             KylinConfig dictConfig = (flatDesc.getSegment()).getConfig();
-            String[] mrHiveDictColumns = dictConfig.getMrHiveDictColumns();
-            if (mrHiveDictColumns.length > 0) {
+            String[] mrHiveDictColumns = dictConfig.getMrHiveDictColumnsExcludeRefColumns();
+            if (Objects.nonNull(mrHiveDictColumns) && mrHiveDictColumns.length > 0
+                    && !"".equals(mrHiveDictColumns[0])) {
                 String globalDictDatabase = dictConfig.getMrHiveDictDB();
                 if (null == globalDictDatabase) {
                     throw new IllegalArgumentException("Mr-Hive Global dict database is null.");
@@ -117,71 +120,113 @@ public class HiveInputBase {
             addStepPhase1_DoMaterializeLookupTable(jobFlow);
         }
 
+        @Override
+        public void addStepPhase_ReplaceFlatTableGlobalColumnValue(DefaultChainedExecutable jobFlow) {
+            KylinConfig dictConfig = (flatDesc.getSegment()).getConfig();
+            final String cubeName = CubingExecutableUtil.getCubeName(jobFlow.getParams());
+            String[] mrHiveDictColumnsExcludeRefCols = dictConfig.getMrHiveDictColumnsExcludeRefColumns();
+            Map<String, String> dictRef = dictConfig.getMrHiveDictRefColumns();
+            final String hiveInitStatements = JoinedFlatTable.generateHiveInitStatements(flatTableDatabase);
+
+            String globalDictDatabase = dictConfig.getMrHiveDictDB();
+            if (null == globalDictDatabase) {
+                throw new IllegalArgumentException("Mr-Hive Global dict database is null.");
+            }
+            String globalDictTable = cubeName + dictConfig.getMrHiveDictTableSuffix();
+            if(Objects.nonNull(mrHiveDictColumnsExcludeRefCols) && mrHiveDictColumnsExcludeRefCols.length > 0) {
+                //merge to dict table step
+                jobFlow.addTask(createHiveGlobalDictMergeGlobalDict(flatDesc, hiveInitStatements, cubeName, mrHiveDictColumnsExcludeRefCols, globalDictDatabase, globalDictTable));
+
+                for (String item : mrHiveDictColumnsExcludeRefCols) {
+                    dictRef.put(item, "");
+                }
+            }
+
+            //replace step
+            if(dictRef.size()>0) {
+                jobFlow.addTask(createMrHiveGlobalDictReplaceStep(flatDesc, hiveInitStatements, cubeName,
+                        dictRef, flatTableDatabase, globalDictDatabase, globalDictTable, dictConfig.getMrHiveDictTableSuffix(), jobFlow.getId()));
+            }
+
+        }
+
         protected void addStepPhase1_DoCreateMrHiveGlobalDict(DefaultChainedExecutable jobFlow,
                 String[] mrHiveDictColumns, String globalDictDatabase, String globalDictTable) {
             final String cubeName = CubingExecutableUtil.getCubeName(jobFlow.getParams());
             final String hiveInitStatements = JoinedFlatTable.generateHiveInitStatements(flatTableDatabase);
-            final String jobWorkingDir = getJobWorkingDir(jobFlow, hdfsWorkingDir);
 
-            jobFlow.addTask(createMrHiveGlobalDictExtractStep(flatDesc, hiveInitStatements, jobWorkingDir, cubeName,
-                    mrHiveDictColumns, globalDictDatabase, globalDictTable));
-            jobFlow.addTask(createMrHIveGlobalDictBuildStep(flatDesc, hiveInitStatements, hdfsWorkingDir, cubeName,
-                    mrHiveDictColumns, flatTableDatabase, globalDictDatabase, globalDictTable));
-            jobFlow.addTask(createMrHiveGlobalDictReplaceStep(flatDesc, hiveInitStatements, hdfsWorkingDir, cubeName,
-                    mrHiveDictColumns, flatTableDatabase, globalDictDatabase, globalDictTable));
+            //Crete tables for global dict and extract distinct value
+            jobFlow.addTask(createMrHiveGlobalDictExtractStep(flatDesc, hiveInitStatements, cubeName,
+                    mrHiveDictColumns, globalDictDatabase, globalDictTable, jobFlow.getId()));
+
         }
 
         protected static AbstractExecutable createMrHiveGlobalDictExtractStep(IJoinedFlatTableDesc flatDesc,
-                String hiveInitStatements, String jobWorkingDir, String cubeName, String[] mrHiveDictColumns,
-                String globalDictDatabase, String globalDictTable) {
+                String hiveInitStatements, String cubeName, String[] mrHiveDictColumns,
+                String globalDictDatabase, String globalDictTable, String jobId) {
             // Firstly, determine if the global dict hive table of cube is exists.
             String createGlobalDictTableHql = "CREATE TABLE IF NOT EXISTS " + globalDictDatabase + "." + globalDictTable
                     + "\n" + "( dict_key STRING COMMENT '', \n" + "dict_val INT COMMENT '' \n" + ") \n"
-                    + "COMMENT '' \n" + "PARTITIONED BY (dict_column string) \n" + "STORED AS TEXTFILE; \n";
+                    + "COMMENT '' \n" + "PARTITIONED BY (dict_column string) \n" + " ROW FORMAT DELIMITED FIELDS TERMINATED BY '\\t' \n" + "STORED AS TEXTFILE; \n";
 
             final String dropDictIntermediateTableHql = MRHiveDictUtil.generateDropTableStatement(flatDesc);
             final String createDictIntermediateTableHql = MRHiveDictUtil.generateCreateTableStatement(flatDesc);
+            final String groupByTable = flatDesc.getTableName() + flatDesc.getSegment().getConfig().getMrHiveDictIntermediateTTableSuffix();
+            final String globalDictIntermediateTable = MRHiveDictUtil.getMRHiveFlatTableGlobalDictTableName(flatDesc);
+            final String dropGlobalDictIntermediateTableHql = MRHiveDictUtil.generateDropTableStatement(globalDictIntermediateTable);
+            final String createGlobalDictIntermediateTableHql = MRHiveDictUtil.generateCreateGlobalDicIntermediateTableStatement(globalDictIntermediateTable);
+
+            String maxAndDistinctCountSql = "INSERT OVERWRITE TABLE  " + groupByTable + " PARTITION (DICT_COLUMN = '" + BatchConstants.CFG_GLOBAL_DICT_STATS_PARTITION_VALUE + "') "
+                    + "\n" + "SELECT  CONCAT_WS(',', tc.dict_column, cast(tc.total_distinct_val AS String), if(tm.max_dict_val is null, '0', cast(max_dict_val as string))) "
+                    + "\n" + "FROM ("
+                    + "\n" + "    SELECT  dict_column,count(1) total_distinct_val FROM "
+                    + "\n" + groupByTable + " where DICT_COLUMN != '" + BatchConstants.CFG_GLOBAL_DICT_STATS_PARTITION_VALUE + "' group by dict_column) tc "
+                    + "\n" + "LEFT JOIN (\n"
+                    + "\n" + "    SELECT  dict_column,if(max(dict_val) is null, 0, max(dict_val)) as max_dict_val FROM "
+                    + "\n" + globalDictDatabase + "." + globalDictTable + " group by dict_column) tm "
+                    + "\n" + "ON  tc.dict_column = tm.dict_column;";
 
             StringBuilder insertDataToDictIntermediateTableSql = new StringBuilder();
             for (String dictColumn : mrHiveDictColumns) {
                 insertDataToDictIntermediateTableSql
-                        .append(MRHiveDictUtil.generateInsertDataStatement(flatDesc, dictColumn));
+                        .append(MRHiveDictUtil.generateInsertDataStatement(flatDesc, dictColumn, globalDictDatabase, globalDictTable));
             }
-
+            String set = "set hive.exec.compress.output=false;set hive.mapred.mode=unstrict;";
             CreateMrHiveDictStep step = new CreateMrHiveDictStep();
             step.setInitStatement(hiveInitStatements);
-            step.setCreateTableStatement(createGlobalDictTableHql + dropDictIntermediateTableHql
-                    + createDictIntermediateTableHql + insertDataToDictIntermediateTableSql.toString());
+            step.setCreateTableStatement(set + createGlobalDictTableHql + dropDictIntermediateTableHql
+                    + createDictIntermediateTableHql + dropGlobalDictIntermediateTableHql + createGlobalDictIntermediateTableHql + insertDataToDictIntermediateTableSql.toString() + maxAndDistinctCountSql);
             CubingExecutableUtil.setCubeName(cubeName, step.getParams());
             step.setName(ExecutableConstants.STEP_NAME_GLOBAL_DICT_MRHIVE_EXTRACT_DICTVAL);
+            step.setIsLock(true);
+            step.setIsUnLock(false);
+            step.setLockPathName(cubeName);
+            step.setJobFlowJobId(jobId);
             return step;
         }
 
-        protected static AbstractExecutable createMrHIveGlobalDictBuildStep(IJoinedFlatTableDesc flatDesc,
-                String hiveInitStatements, String hdfsWorkingDir, String cubeName, String[] mrHiveDictColumns,
-                String flatTableDatabase, String globalDictDatabase, String globalDictTable) {
-            String flatTable = flatTableDatabase + "."
-                    + MRHiveDictUtil.getHiveTableName(flatDesc, MRHiveDictUtil.DictHiveType.GroupBy);
+        protected static AbstractExecutable createHiveGlobalDictMergeGlobalDict(IJoinedFlatTableDesc flatDesc,
+                                                                                String hiveInitStatements, String cubeName, String[] mrHiveDictColumns,
+                                                                                String globalDictDatabase, String globalDictTable) {
+
+            String globalDictItermediateTable = MRHiveDictUtil.getMRHiveFlatTableGlobalDictTableName(flatDesc);
+
+            StringBuffer addPartition = new StringBuffer();
             Map<String, String> maxDictValMap = new HashMap<>();
             Map<String, String> dictHqlMap = new HashMap<>();
-
             for (String dictColumn : mrHiveDictColumns) {
-                // get dict max value
-                String maxDictValHql = "SELECT if(max(dict_val) is null,0,max(dict_val)) as max_dict_val \n" + " FROM "
-                        + globalDictDatabase + "." + globalDictTable + " \n" + " WHERE dict_column = '" + dictColumn
-                        + "' \n";
-                maxDictValMap.put(dictColumn, maxDictValHql);
                 try {
+                    addPartition.append("alter table ").append(globalDictItermediateTable)
+                            .append(" add  IF NOT EXISTS partition (dict_column='").append(dictColumn)
+                            .append("');").append(" \n");
+
                     String dictHql = "INSERT OVERWRITE TABLE " + globalDictDatabase + "." + globalDictTable + " \n"
-                            + "PARTITION (dict_column = '" + dictColumn + "') \n" + "SELECT dict_key, dict_val FROM "
+                            + "PARTITION (dict_column = '" + dictColumn + "') \n"
+                            + "SELECT dict_key, dict_val FROM "
                             + globalDictDatabase + "." + globalDictTable + " \n" + "WHERE dict_column = '" + dictColumn
-                            + "' \n" + flatDesc.getDataModel().getConfig().getHiveUnionStyle()
-                            + "\nSELECT a.dict_key as dict_key, (row_number() over(order by a.dict_key asc)) + (___maxDictVal___) as dict_val \n"
-                            + "FROM \n" + "( \n" + " SELECT dict_key FROM " + flatTable + " WHERE dict_column = '"
-                            + dictColumn + "' AND dict_key is not null \n" + ") a \n" + "LEFT JOIN \n" + "( \n"
-                            + "SELECT dict_key, dict_val FROM " + globalDictDatabase + "." + globalDictTable
-                            + " WHERE dict_column = '" + dictColumn + "' \n" + ") b \n"
-                            + "ON a.dict_key = b.dict_key \n" + "WHERE b.dict_val is null; \n";
+                            + "' \n" + flatDesc.getDataModel().getConfig().getHiveUnionStyle() + " \n"
+                            + "SELECT dict_key, dict_val FROM "
+                            + globalDictItermediateTable + " \n" + " WHERE dict_column = '" + dictColumn + "' ;\n";
                     dictHqlMap.put(dictColumn, dictHql);
                 } catch (Exception e) {
                     logger.error("", e);
@@ -189,21 +234,21 @@ public class HiveInputBase {
             }
             String hiveInitStatementForUnstrict = "set hive.mapred.mode=unstrict;";
             CreateMrHiveDictStep step = new CreateMrHiveDictStep();
-            step.setInitStatement(hiveInitStatements + hiveInitStatementForUnstrict);
+            step.setInitStatement(hiveInitStatements + hiveInitStatementForUnstrict + addPartition);
             step.setCreateTableStatementMap(dictHqlMap);
             step.setMaxDictStatementMap(maxDictValMap);
-            step.setIsLock(true);
+            step.setIsLock(false);
+            step.setIsUnLock(false);
             step.setLockPathName(cubeName);
             CubingExecutableUtil.setCubeName(cubeName, step.getParams());
             step.setName(ExecutableConstants.STEP_NAME_GLOBAL_DICT_MRHIVE_BUILD_DICTVAL);
             return step;
         }
 
-        protected static AbstractExecutable createMrHiveGlobalDictReplaceStep(IJoinedFlatTableDesc flatDesc,
-                String hiveInitStatements, String hdfsWorkingDir, String cubeName, String[] mrHiveDictColumns,
-                String flatTableDatabase, String globalDictDatabase, String globalDictTable) {
+        protected static AbstractExecutable createMrHiveGlobalDictReplaceStep(IJoinedFlatTableDesc flatDesc, String hiveInitStatements, String cubeName, Map<String, String> mrHiveDictColumns, String flatTableDatabase, String globalDictDatabase, String globalDictTable, String dictSuffix, String jobId) {
             Map<String, String> dictHqlMap = new HashMap<>();
-            for (String dictColumn : mrHiveDictColumns) {
+            StringBuilder addPartition = new StringBuilder();
+            for (String dictColumn : mrHiveDictColumns.keySet()) {
                 StringBuilder dictHql = new StringBuilder();
                 TblColRef dictColumnRef = null;
 
@@ -219,27 +264,42 @@ public class HiveInputBase {
                             dictHql.append(",");
                         }
                         if (JoinedFlatTable.colName(tblColRef, flatDesc.useAlias()).equalsIgnoreCase(dictColumn)) {
-                            dictHql.append("b. dict_val \n");
+                            dictHql.append("b.dict_val \n");
                             dictColumnRef = tblColRef;
                         } else {
                             dictHql.append("a." + JoinedFlatTable.colName(tblColRef) + " \n");
                         }
                     }
-                    dictHql.append("FROM " + flatTable + " a \n" + "LEFT OUTER JOIN \n" + "( \n"
-                            + "SELECT dict_key, dict_val FROM " + globalDictDatabase + "." + globalDictTable
-                            + " WHERE dict_column = '" + dictColumn + "' \n" + ") b \n" + " ON a."
-                            + JoinedFlatTable.colName(dictColumnRef) + " = b.dict_key;");
+
+                    if (!Strings.isNullOrEmpty(mrHiveDictColumns.get(dictColumn))) {
+                        String[] cubePartion = mrHiveDictColumns.get(dictColumn).split("\\.");
+
+                        String refGlobalDictTable = cubePartion[0] + dictSuffix;
+                        String refDictColumn = cubePartion[1];
+
+                        dictHql.append("FROM " + flatTable + " a \n" + "LEFT OUTER JOIN \n" + "( \n"
+                                + "SELECT dict_key, dict_val FROM " + globalDictDatabase + "." + refGlobalDictTable
+                                + " WHERE dict_column = '" + refDictColumn + "' \n" + ") b \n" + " ON a."
+                                + JoinedFlatTable.colName(dictColumnRef) + " = b.dict_key;");
+                        dictHqlMap.put(dictColumn, dictHql.toString());
+                    }else {
+                        dictHql.append("FROM " + flatTable + " a \n" + "LEFT OUTER JOIN \n" + "( \n"
+                                + "SELECT dict_key, dict_val FROM " + globalDictDatabase + "." + globalDictTable
+                                + " WHERE dict_column = '" + dictColumn + "' \n" + ") b \n" + " ON a."
+                                + JoinedFlatTable.colName(dictColumnRef) + " = b.dict_key;");
+                    }
                     dictHqlMap.put(dictColumn, dictHql.toString());
                 } catch (Exception e) {
                     logger.error("", e);
                 }
             }
+            String set = "set hive.exec.compress.output=false; set hive.mapred.mode=unstrict;";
             CreateMrHiveDictStep step = new CreateMrHiveDictStep();
-            step.setInitStatement(hiveInitStatements);
+            step.setInitStatement(hiveInitStatements + set + addPartition);
             step.setCreateTableStatementMap(dictHqlMap);
             step.setIsUnLock(true);
             step.setLockPathName(cubeName);
-
+            step.setJobFlowJobId(jobId);
             CubingExecutableUtil.setCubeName(cubeName, step.getParams());
             step.setName(ExecutableConstants.STEP_NAME_GLOBAL_DICT_MRHIVE_REPLACE_DICTVAL);
             return step;
