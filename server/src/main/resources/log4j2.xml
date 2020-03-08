@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="warn">
+    <Appenders>
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="%d{ISO8601} %-5p [%t] %c{2}:%L : %m%n" />
+        </Console>
+
+        <File name="TempFile" fileName="kylin.log" append="false">
+            <PatternLayout pattern="%d{HH:mm:ss.SSS} %-5level %class{36} %L %M - %msg%xEx%n"/>
+        </File>
+    </Appenders>
+    <Loggers>
+        <Root level="INFO">
+            <AppenderRef ref="Console" />
+            <appender-ref ref="TempFile"/>
+        </Root>
+        <logger name="org.apache.kylin" level="TRACE" additivity="false">
+            <appender-ref ref="Console"/>
+            <appender-ref ref="TempFile"/>
+        </logger>
+
+        <logger name="org.springframework" level="WARN" additivity="false">
+            <appender-ref ref="Console"/>
+            <appender-ref ref="TempFile"/>
+        </logger>
+    </Loggers>
+</Configuration>
