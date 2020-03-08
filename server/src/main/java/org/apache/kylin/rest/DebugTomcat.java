@@ -39,7 +39,7 @@ public class DebugTomcat {
     public static void setupDebugEnv() {
         try {
             System.setProperty("HADOOP_USER_NAME", "root");
-
+            System.setProperty("kylin_hadoop_conf_dir", "/Users/yuxiaoxiang/IDEA_WORKSPACE/LacusKylin/examples/test_case_data/hadoop3");
             // test_case_data/sandbox/ contains HDP 2.2 site xmls which is dev sandbox
             KylinConfig.setSandboxEnvIfPossible();
             // Must set SandboxEnv before checking the Kerberos status
