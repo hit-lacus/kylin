@@ -74,13 +74,15 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
  */
 public class HttpStreamDataSearchClient implements IStreamDataSearchClient {
     public static final Logger logger = LoggerFactory.getLogger(HttpStreamDataSearchClient.class);
-    public static final long WAIT_DURATION = 2 * 60000 ;
+    public static final long WAIT_DURATION = 2 * 60000;
 
     private static ExecutorService executorService;
+
     static {
         executorService = new ThreadPoolExecutor(20, 100, 60L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(),
                 new NamedThreadFactory("stream-rpc-pool-t"));
     }
+
     private AssignmentsCache assignmentsCache;
     private RestService restService;
     private Map<Node, Long> failedReceivers = Maps.newConcurrentMap();
@@ -95,8 +97,8 @@ public class HttpStreamDataSearchClient implements IStreamDataSearchClient {
 
     @Override
     public ITupleIterator search(final long minSegmentTime, final CubeInstance cube, final TupleInfo tupleInfo,
-            final TupleFilter tupleFilter, final Set<TblColRef> dimensions, final Set<TblColRef> groups,
-            final Set<FunctionDesc> metrics, final int storagePushDownLimit, final boolean allowStorageAggregation) {
+                                 final TupleFilter tupleFilter, final Set<TblColRef> dimensions, final Set<TblColRef> groups,
+                                 final Set<FunctionDesc> metrics, final int storagePushDownLimit, final boolean allowStorageAggregation) {
         List<ReplicaSet> replicaSetsOfCube = assignmentsCache.getReplicaSetsByCube(cube.getName());
         int timeout = cube.getConfig().getStreamingRPCHttpReadTimeout() * 2;
         final QueuedStreamingTupleIterator result = new QueuedStreamingTupleIterator(replicaSetsOfCube.size(), timeout);
@@ -129,7 +131,7 @@ public class HttpStreamDataSearchClient implements IStreamDataSearchClient {
     }
 
     public Iterator<ITuple> search(DataRequest dataRequest, CubeInstance cube, StreamingTupleConverter tupleConverter,
-            RecordsSerializer recordsSerializer, ReplicaSet rs, TupleInfo tupleInfo) throws Exception {
+                                   RecordsSerializer recordsSerializer, ReplicaSet rs, TupleInfo tupleInfo) throws Exception {
         List<Node> receivers = Lists.newArrayList(rs.getNodes());
         Node queryReceiver = findBestReceiverServeQuery(receivers, cube.getName());
         IOException exception;
@@ -176,14 +178,15 @@ public class HttpStreamDataSearchClient implements IStreamDataSearchClient {
     }
 
     public Iterator<ITuple> doSearch(DataRequest dataRequest, CubeInstance cube, StreamingTupleConverter tupleConverter,
-            RecordsSerializer recordsSerializer, Node receiver, TupleInfo tupleInfo) throws Exception {
+                                     RecordsSerializer recordsSerializer, Node receiver, TupleInfo tupleInfo) throws Exception {
         String queryId = dataRequest.getQueryId();
         String url = "http://" + receiver.getHost() + ":" + receiver.getPort() + "/kylin/api/data/query";
 
         try {
             int connTimeout = cube.getConfig().getStreamingRPCHttpConnTimeout();
             int readTimeout = cube.getConfig().getStreamingRPCHttpReadTimeout();
-            dataRequest.setDeadline(System.currentTimeMillis() + (int)(readTimeout * 1.5));
+            dataRequest.setDeadline(System.currentTimeMillis() + (int) (readTimeout * 1.5));
+            logger.info("Set deadline to " + dataRequest.getDeadline() + " " + readTimeout + " " + System.currentTimeMillis());
             String content = JsonUtil.writeValueAsString(dataRequest);
             Stopwatch sw;
             sw = Stopwatch.createUnstarted();
@@ -204,15 +207,15 @@ public class HttpStreamDataSearchClient implements IStreamDataSearchClient {
     }
 
     public Iterator<ITuple> deserializeResponse(final StreamingTupleConverter tupleConverter,
-            final RecordsSerializer recordsSerializer, String cubeName, TupleInfo tupleInfo, DataResponse response)
+                                                final RecordsSerializer recordsSerializer, String cubeName, TupleInfo tupleInfo, DataResponse response)
             throws IOException, DataFormatException {
         final Iterator<Record> records = recordsSerializer.deserialize(Base64.decodeBase64(response.getData()));
         return new StreamingTupleIterator(records, tupleConverter, tupleInfo);
     }
 
     private DataRequest createDataRequest(String queryId, String cubeName, long minSegmentTime, TupleInfo tupleInfo,
-            TupleFilter tupleFilter, Set<TblColRef> dimensions, Set<TblColRef> groups, Set<FunctionDesc> metrics,
-            int storagePushDownLimit, boolean allowStorageAggregation) {
+                                          TupleFilter tupleFilter, Set<TblColRef> dimensions, Set<TblColRef> groups, Set<FunctionDesc> metrics,
+                                          int storagePushDownLimit, boolean allowStorageAggregation) {
         DataRequest request = new DataRequest();
         request.setCubeName(cubeName);
         request.setQueryId(queryId);

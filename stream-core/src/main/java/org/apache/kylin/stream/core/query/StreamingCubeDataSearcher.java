@@ -14,7 +14,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
-*/
+ */
 
 package org.apache.kylin.stream.core.query;
 
@@ -55,7 +55,7 @@ public class StreamingCubeDataSearcher {
     }
 
     public ITupleIterator search(TupleInfo returnTupleInfo, TupleFilter filter, TupleFilter havingFilter,
-            Set<TblColRef> dimensions, Set<TblColRef> groups, Set<FunctionDesc> metrics, boolean allowStorageAggregation) {
+                                 Set<TblColRef> dimensions, Set<TblColRef> groups, Set<FunctionDesc> metrics, boolean allowStorageAggregation) {
         StreamingSearchContext searchRequest = new StreamingSearchContext(cubeDesc, dimensions, groups, metrics,
                 filter, havingFilter);
         IStreamingSearchResult searchResult = doSearch(searchRequest, -1, allowStorageAggregation);
@@ -76,7 +76,7 @@ public class StreamingCubeDataSearcher {
                     Thread.sleep(50);
                 }
                 if (System.currentTimeMillis() >= searchRequest.getDeadline()) {
-                    throw new RuntimeException("Timeout for " + queryProfile.getQueryId());
+                    throw new RuntimeException("Timeout for " + queryProfile.getQueryId() + " -> " + System.currentTimeMillis() + " -> " + searchRequest.getDeadline());
                 }
             }
             Collection<StreamingCubeSegment> segments = streamingSegmentManager.getAllSegments();
@@ -171,7 +171,7 @@ public class StreamingCubeDataSearcher {
         private RecordsAggregator recordsAggregator;
 
         public StreamAggregateSearchResult(IStreamingSearchResult inputSearchResult,
-                StreamingSearchContext searchRequest) {
+                                           StreamingSearchContext searchRequest) {
             this.inputSearchResult = inputSearchResult;
             this.recordsAggregator = new RecordsAggregator(searchRequest.getRespResultSchema(), searchRequest.getAllGroups(), searchRequest.getHavingFilter());
         }

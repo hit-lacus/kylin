@@ -14,7 +14,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
-*/
+ */
 
 package org.apache.kylin.stream.server.rest.controller;
 
@@ -68,7 +68,7 @@ public class DataController extends BasicController {
         streamingServer = StreamingServer.getInstance();
     }
 
-    @RequestMapping(value = "/query", method = RequestMethod.POST, produces = { "application/json" })
+    @RequestMapping(value = "/query", method = RequestMethod.POST, produces = {"application/json"})
     @ResponseBody
     public DataResponse query(@RequestBody DataRequest dataRequest) {
         IStreamingSearchResult searchResult = null;
@@ -109,13 +109,14 @@ public class DataController extends BasicController {
             StreamingSearchContext gtSearchRequest = new StreamingSearchContext(cubeDesc, dimensions, groups,
                     metrics, tupleFilter, havingFilter);
             gtSearchRequest.setDeadline(dataRequest.getDeadline());
+            logger.info(dataRequest.getDeadline() + " at " + dataRequest.getQueryId());
             searchResult = dataSearcher.doSearch(gtSearchRequest, minSegmentTime,
                     dataRequest.isAllowStorageAggregation());
 
             if (StorageSideBehavior.RAW_SCAN == queryProfile.getStorageBehavior()) {
                 long counter = 0;
                 for (Record record : searchResult) {
-                    counter ++;
+                    counter++;
                 }
                 logger.info("query-{}: scan {} rows", queryId, counter);
             }
