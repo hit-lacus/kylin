@@ -461,7 +461,7 @@
                                     </value>
                                 </property>
                             </systemProperties>
-                            <argLine>-Xms1G -Xmx2G -XX:PermSize=128M -XX:MaxPermSize=512M
+                            <argLine>-verbose:class -Xms1G -Xmx2G -XX:PermSize=128M -XX:MaxPermSize=512M
                                 -Dkylin.server.cluster-servers=localhost:7070
                                 -javaagent:${project.basedir}/..//dev-support/org.jacoco.agent-${jacoco.version}-runtime.jar=includes=org.apache.kylin.*,output=file,destfile=jacoco-it.exec
                             </argLine>
