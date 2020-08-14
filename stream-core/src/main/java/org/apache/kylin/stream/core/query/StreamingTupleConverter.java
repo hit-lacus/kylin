@@ -111,6 +111,7 @@ public class StreamingTupleConverter {
             if (ti >= 0) {
                 if (autoTimezone && timestampColumn.contains(ti)) {
                     try {
+                        System.out.println("XXYU-2\t" + dimValues[i] + "\t" + TIME_ZONE_OFFSET);
                         tuple.setDimensionValue(ti, Long.toString(Long.parseLong(dimValues[i]) + TIME_ZONE_OFFSET));
                     } catch (NumberFormatException nfe) {
                         logger.warn("{} is not a long value.", dimValues[i]);

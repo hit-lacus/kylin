@@ -180,6 +180,7 @@ public class CubeTupleConverter implements ITupleConverter {
                     try {
                         String v = toString(gtValues[i]);
                         if (v != null) {
+                            System.out.println("XXYU-1 " + v + "\t" + timeZoneOffset);
                             tuple.setDimensionValue(ti, Long.toString(Long.parseLong(v) + timeZoneOffset));
                         }
                     } catch (NumberFormatException nfe) {
