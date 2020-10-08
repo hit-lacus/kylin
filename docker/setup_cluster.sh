@@ -35,19 +35,19 @@ KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/others/docke
 KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/write/docker-compose-hive.yml up -d
 
 
-if [ $KERBEROS == "yes" ]; then
+if [ $ENABLE_KERBEROS == "yes" ]; then
   KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/others/docker-compose-kerberos.yml down
   sleep 2
   KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/others/docker-compose-kerberos.yml up -d
 fi
 
-if [ $LDAP == "yes" ]; then
+if [ $ENABLE_LDAP == "yes" ]; then
   KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/others/docker-compose-ldap.yml down
   sleep 2
   KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/others/docker-compose-ldap.yml up -d
 fi
 
-if [ $KAFKA == "yes" ]; then
+if [ $ENABLE_KAFKA == "yes" ]; then
   KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/write/docker-compose-kafka.yml down
   sleep 2
   KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/write/docker-compose-kafka.yml up -d
@@ -56,7 +56,7 @@ fi
 
 if [ $CLUSTER_MODE == "write" ]; then
   KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/others/docker-compose-kylin-write.yml down
-  if [ $HBASE == "yes" ]; then
+  if [ $ENABLE_HBASE == "yes" ]; then
     KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/write/docker-compose-hbase.yml down
     sleep 2
     KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/write/docker-compose-hbase.yml up -d
@@ -73,7 +73,7 @@ if [ $CLUSTER_MODE == "write-read" ]; then
   KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/read/docker-compose-zookeeper.yml up -d
   KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/read/docker-compose-hadoop.yml up -d
 
-  if [ $HBASE == "yes" ]; then
+  if [ $ENABLE_HBASE == "yes" ]; then
     KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/read/docker-compose-hbase.yml down
     sleep 2
     KYLIN_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/docker-compose/read/docker-compose-hbase.yml up -d
