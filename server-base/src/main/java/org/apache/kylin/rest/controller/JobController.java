@@ -176,7 +176,7 @@ public class JobController extends BasicController {
         Map<String, String> result = new HashMap<String, String>();
         result.put("jobId", jobId);
         result.put("stepId", String.valueOf(stepId));
-        result.put("cmd_output", jobService.getJobOutput(jobId, stepId));
+        result.put("cmd_output", jobService.getJobStepOutput(jobId, stepId));
         return result;
     }
 
@@ -198,7 +198,7 @@ public class JobController extends BasicController {
         checkRequiredArg("project", project);
         String downloadFilename = String.format(Locale.ROOT, "%s_%s.log", project, stepId);
 
-        String jobOutput = jobService.getAllJobOutput(jobId, stepId);
+        String jobOutput = jobService.getAllJobStepOutput(jobId, stepId);
         setDownloadResponse(new ByteArrayInputStream(jobOutput.getBytes("UTF-8")), downloadFilename, MediaType.APPLICATION_OCTET_STREAM_VALUE, response);
         return new EnvelopeResponse<>(ResponseCode.CODE_SUCCESS, "", "");
     }

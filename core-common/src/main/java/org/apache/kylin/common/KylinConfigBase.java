@@ -2859,8 +2859,7 @@ public abstract class KylinConfigBase implements Serializable {
         return getOptional("kylin.query.intersect.separator", "|");
     }
 
-    @ConfigTag(ConfigTag.Tag.NOT_CLEAR)
-    public String sparderFiles() {
+    public String sparkUploadFiles() {
         try {
             File storageFile = FileUtils.findFile(KylinConfigBase.getKylinHome() + "/conf",
                     "spark-executor-log4j.properties");

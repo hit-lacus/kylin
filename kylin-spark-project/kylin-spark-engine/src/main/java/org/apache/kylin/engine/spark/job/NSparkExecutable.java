@@ -331,16 +331,6 @@ public class NSparkExecutable extends AbstractExecutable {
             }
         }
 
-        /*
-        if (config.isCloud()) {
-            String logLocalWorkingDirectory = config.getLogLocalWorkingDirectory();
-            if (StringUtils.isNotBlank(logLocalWorkingDirectory)) {
-                hdfsWorkingDir = logLocalWorkingDirectory;
-                sparkDriverHdfsLogPath = logLocalWorkingDirectory + sparkDriverHdfsLogPath;
-            }
-        }
-         */
-
         String log4jConfiguration = "file:" + config.getLogSparkDriverPropertiesFile();
         sb.append(String.format(Locale.ROOT, " -Dlog4j.configuration=%s ", log4jConfiguration));
         sb.append(String.format(Locale.ROOT, " -Dkylin.kerberos.enabled=%s ", config.isKerberosEnabled()));
@@ -377,12 +367,13 @@ public class NSparkExecutable extends AbstractExecutable {
         if (sparkConfs.containsKey("spark.sql.hive.metastore.jars")) {
             jars = jars + "," + sparkConfs.get("spark.sql.hive.metastore.jars");
         }
-
+        sb.append("--files ").append(config.sparkUploadFiles()).append(" ");
         sb.append("--name job_step_%s ");
         sb.append("--jars %s %s %s");
         String cmd = String.format(Locale.ROOT, sb.toString(), hadoopConf, KylinConfig.getSparkHome(), getId(), jars, kylinJobJar,
                 appArgs);
         logger.info("spark submit cmd: {}", cmd);
+        System.out.println("Spark-Submit command : " + cmd);
         return cmd;
     }
 
