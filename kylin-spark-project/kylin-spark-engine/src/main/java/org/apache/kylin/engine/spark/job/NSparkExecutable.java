@@ -203,7 +203,7 @@ public class NSparkExecutable extends AbstractExecutable {
         String project = getParam(MetadataConstants.P_PROJECT_NAME);
         Preconditions.checkState(StringUtils.isNotBlank(project), "job " + getId() + " project info is empty");
 
-        HashMap<String, String> jobOverrides = new HashMap();
+        HashMap<String, String> jobOverrides = new HashMap<>();
         String parentId = getParentId();
         jobOverrides.put("job.id", StringUtils.defaultIfBlank(parentId, getId()));
         jobOverrides.put("job.project", project);
@@ -302,15 +302,23 @@ public class NSparkExecutable extends AbstractExecutable {
             sparkConfigOverride.put("spark.hadoop.hive.metastore.sasl.enabled", "true");
         }
 
-        replaceSparkDriverJavaOpsConfIfNeeded(config, sparkConfigOverride);
+        replaceSparkDriverJavaOpsConfIfNeeded(true, config, sparkConfigOverride);
+        replaceSparkDriverJavaOpsConfIfNeeded(false, config, sparkConfigOverride);
         return sparkConfigOverride;
     }
 
-    private void replaceSparkDriverJavaOpsConfIfNeeded(KylinConfig config, Map<String, String> sparkConfigOverride) {
-        String sparkDriverExtraJavaOptionsKey = "spark.driver.extraJavaOptions";
+    /**
+     * Add property in spark.xxx.extraJavaOptions for AbstractHdfsLogAppender
+     * Please check following for detail.
+     * 1. conf/spark-driver-log4j.properties and conf/spark-executor-log4j.properties
+     * 2. AbstractHdfsLogAppender
+     */
+    private void replaceSparkDriverJavaOpsConfIfNeeded(boolean isDriver, KylinConfig config,
+                                                       Map<String, String> sparkConfigOverride) {
+        String sparkNodeExtraJavaOptionsKey = isDriver ? "spark.driver.extraJavaOptions" : "spark.executor.extraJavaOptions";
         StringBuilder sb = new StringBuilder();
-        if (sparkConfigOverride.containsKey(sparkDriverExtraJavaOptionsKey)) {
-            sb.append(sparkConfigOverride.get(sparkDriverExtraJavaOptionsKey));
+        if (sparkConfigOverride.containsKey(sparkNodeExtraJavaOptionsKey)) {
+            sb.append(sparkConfigOverride.get(sparkNodeExtraJavaOptionsKey));
         }
 
         String serverIp = "127.0.0.1";
@@ -320,21 +328,37 @@ public class NSparkExecutable extends AbstractExecutable {
             logger.warn("use the InetAddress get local ip failed!", e);
         }
         String serverPort = config.getServerPort();
-
         String hdfsWorkingDir = config.getHdfsWorkingDirectory();
+        String log4jConfiguration ;
 
-        String sparkDriverHdfsLogPath = null;
-        if (config instanceof KylinConfigExt) {
-            Map<String, String> extendedOverrides = ((KylinConfigExt) config).getExtendedOverrides();
-            if (Objects.nonNull(extendedOverrides)) {
-                sparkDriverHdfsLogPath = extendedOverrides.get("spark.driver.log4j.appender.hdfs.File");
+        if (isDriver) {
+            String sparkDriverHdfsLogPath ;
+            if (config instanceof KylinConfigExt) {
+                Map<String, String> extendedOverrides = ((KylinConfigExt) config).getExtendedOverrides();
+                if (Objects.nonNull(extendedOverrides)) {
+                    sparkDriverHdfsLogPath = extendedOverrides.get("spark.driver.log4j.appender.hdfs.File");
+                    sb.append(String.format(Locale.ROOT, " -Dspark.driver.log4j.appender.hdfs.File=%s ", sparkDriverHdfsLogPath));
+                }
             }
+            log4jConfiguration = "file:" + config.getLogSparkDriverPropertiesFile();
+            sb.append(String.format(Locale.ROOT, " -Dlog4j.configuration=%s ", log4jConfiguration));
+            sb.append(String.format(Locale.ROOT, " -Dspark.driver.rest.server.ip=%s ", serverIp));
+            sb.append(String.format(Locale.ROOT, " -Dspark.driver.rest.server.port=%s ", serverPort));
+            sb.append(String.format(Locale.ROOT, " -Dspark.driver.param.taskId=%s ", getId()));
+            sb.append(String.format(Locale.ROOT, " -Dspark.driver.local.logDir=%s ", config.getKylinLogDir() + "/spark"));
+        } else {
+            if (config instanceof KylinConfigExt) {
+                Map<String, String> extendedOverrides = ((KylinConfigExt) config).getExtendedOverrides();
+                if (Objects.nonNull(extendedOverrides)) {
+                    sb.append(" -Dkylin.spark.project=").append(extendedOverrides.get("job.project"));
+                    sb.append(" -Dkylin.spark.jobName=").append(extendedOverrides.get("job.stepId"));
+                    sb.append(" -Dkylin.spark.identifier=").append(extendedOverrides.get("job.id"));
+                }
+            }
+            sb.append(" -Dkylin.metadata.identifier=").append(config.getMetadataUrlPrefix());
         }
 
-        String log4jConfiguration = "file:" + config.getLogSparkDriverPropertiesFile();
-        sb.append(String.format(Locale.ROOT, " -Dlog4j.configuration=%s ", log4jConfiguration));
         sb.append(String.format(Locale.ROOT, " -Dkylin.kerberos.enabled=%s ", config.isKerberosEnabled()));
-
         if (config.isKerberosEnabled()) {
             sb.append(String.format(Locale.ROOT, " -Dkylin.kerberos.principal=%s ", config.getKerberosPrincipal()));
             sb.append(String.format(Locale.ROOT, " -Dkylin.kerberos.keytab=%s", config.getKerberosKeytabPath()));
@@ -344,12 +368,9 @@ public class NSparkExecutable extends AbstractExecutable {
             }
         }
         sb.append(String.format(Locale.ROOT, " -Dkylin.hdfs.working.dir=%s ", hdfsWorkingDir));
-        sb.append(String.format(Locale.ROOT, " -Dspark.driver.log4j.appender.hdfs.File=%s ", sparkDriverHdfsLogPath));
-        sb.append(String.format(Locale.ROOT, " -Dspark.driver.rest.server.ip=%s ", serverIp));
-        sb.append(String.format(Locale.ROOT, " -Dspark.driver.rest.server.port=%s ", serverPort));
-        sb.append(String.format(Locale.ROOT, " -Dspark.driver.param.taskId=%s ", getId()));
-        sb.append(String.format(Locale.ROOT, " -Dspark.driver.local.logDir=%s ", config.getKylinLogDir() + "/spark"));
-        sparkConfigOverride.put(sparkDriverExtraJavaOptionsKey, sb.toString());
+
+        // Here replace original Java options for Spark node
+        sparkConfigOverride.put(sparkNodeExtraJavaOptionsKey, sb.toString());
     }
 
     protected String generateSparkCmd(KylinConfig config, String hadoopConf, String jars, String kylinJobJar,
