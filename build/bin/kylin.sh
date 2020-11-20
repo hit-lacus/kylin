@@ -170,6 +170,7 @@ function retrieveDependency() {
 
     # compose KYLIN_TOMCAT_OPTS
     KYLIN_TOMCAT_OPTS="-Dlog4j.configuration=file:${KYLIN_HOME}/conf/kylin-server-log4j.properties \
+    -Dlog4j.debug \
     -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager \
     -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true \
     -Dorg.apache.catalina.connector.CoyoteAdapter.ALLOW_BACKSLASH=true \

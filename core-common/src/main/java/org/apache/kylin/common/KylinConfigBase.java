@@ -258,6 +258,9 @@ public abstract class KylinConfigBase implements Serializable {
 
     final protected void reloadKylinConfig(Properties properties) {
         this.properties = BCC.check(properties);
+        setProperty("kylin.metadata.url.identifier", getMetadataUrlPrefix());
+        setProperty("kylin.log.spark-driver-properties-file", getLogSparkDriverPropertiesFile());
+        setProperty("kylin.log.spark-executor-properties-file", getLogSparkExecutorPropertiesFile());
     }
 
     private Map<Integer, String> convertKeyToInteger(Map<String, String> map) {
@@ -463,6 +466,10 @@ public abstract class KylinConfigBase implements Serializable {
 
     public String getMetadataUrlPrefix() {
         return getMetadataUrl().getIdentifier();
+    }
+
+    public String getServerPort() {
+        return getOptional("server.port", "7070");
     }
 
     public Map<String, String> getResourceStoreImpls() {
@@ -821,14 +828,15 @@ public abstract class KylinConfigBase implements Serializable {
 
     /**
      * get assigned server array, which a empty string array in default
-     * @return
+     *
      */
     public String[] getAssignedServers() {
-        return getOptionalStringArray("kylin.cube.schedule.assigned-servers", new String[] {});
+        return getOptionalStringArray("kylin.cube.schedule.assigned-servers", new String[]{});
     }
 
     /**
      * Determine if the target node is in the assigned node
+     *
      * @param targetServers target task servers
      * @return
      */
@@ -864,6 +872,14 @@ public abstract class KylinConfigBase implements Serializable {
 
     public String getKylinJobLogDir() {
         return getOptional("kylin.job.log-dir", "/tmp/kylin/logs");
+    }
+
+    public String getKylinLogDir() {
+        String kylinHome = getKylinHome();
+        if (kylinHome == null) {
+            kylinHome = System.getProperty("KYLIN_HOME");
+        }
+        return kylinHome + File.separator + "logs";
     }
 
     public boolean getRunAsRemoteCommand() {
@@ -1496,7 +1512,6 @@ public abstract class KylinConfigBase implements Serializable {
     public int getDefaultCubeEngine() {
         return Integer.parseInt(getOptional("kylin.engine.default", "6"));
     }
-
 
 
     public String getKylinJobJarPath() {
@@ -2664,6 +2679,10 @@ public abstract class KylinConfigBase implements Serializable {
         return getHdfsWorkingDirectory() + project + "/job_tmp/";
     }
 
+    public String getSparkLogDir(String project) {
+        return getHdfsWorkingDirectory() + project + "/spark_logs/driver/";
+    }
+
     @ConfigTag(ConfigTag.Tag.NOT_CLEAR)
     public int getPersistFlatTableThreshold() {
         return Integer.parseInt(getOptional("kylin.engine.persist-flattable-threshold", "1"));
@@ -2803,8 +2822,12 @@ public abstract class KylinConfigBase implements Serializable {
         return Boolean.parseBoolean(getOptional("kylin.query.spark-engine.enabled", "true"));
     }
 
-    public String getLogSparkPropertiesFile() {
-        return getLogPropertyFile("kylin-parquet-log4j.properties");
+    public String getLogSparkDriverPropertiesFile() {
+        return getLogPropertyFile("spark-driver-log4j.properties");
+    }
+
+    public String getLogSparkExecutorPropertiesFile() {
+        return getLogPropertyFile("spark-executor-log4j.properties");
     }
 
     private String getLogPropertyFile(String filename) {
@@ -2827,6 +2850,9 @@ public abstract class KylinConfigBase implements Serializable {
         return Integer.parseInt(getOptional("kylin.query.spark-engine.spark-sql-shuffle-partitions", "-1"));
     }
 
+    /**
+     * Spark configuration for SparderContext
+     */
     public Map<String, String> getQuerySparkConf() {
         return getPropertiesByPrefix("kylin.query.spark-conf.");
     }
@@ -2835,8 +2861,7 @@ public abstract class KylinConfigBase implements Serializable {
         return getOptional("kylin.query.intersect.separator", "|");
     }
 
-    @ConfigTag(ConfigTag.Tag.NOT_CLEAR)
-    public String sparderFiles() {
+    public String sparkUploadFiles() {
         try {
             File storageFile = FileUtils.findFile(KylinConfigBase.getKylinHome() + "/conf",
                     "spark-executor-log4j.properties");
@@ -2869,6 +2894,10 @@ public abstract class KylinConfigBase implements Serializable {
     public boolean isAutoSetPushDownPartitions() {
         return Boolean
                 .parseBoolean(this.getOptional("kylin.query.pushdown.auto-set-shuffle-partitions-enabled", "true"));
+    }
+
+    public String getJobOutputStorePath(String project, String jobId) {
+        return getSparkLogDir(project) + getNestedPath(jobId) + "execute_output.json";
     }
 
     public int getBaseShufflePartitionSize() {

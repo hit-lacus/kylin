@@ -38,6 +38,12 @@ public class ExecutableOutputPO extends RootPersistentEntity {
     @JsonProperty("status")
     private String status = "READY";
 
+    /**
+     * spark executor log
+     */
+    @JsonProperty("log_path")
+    private String logPath;
+
     @JsonProperty("info")
     private Map<String, String> info = Maps.newHashMap();
 
@@ -63,5 +69,13 @@ public class ExecutableOutputPO extends RootPersistentEntity {
 
     public void setInfo(Map<String, String> info) {
         this.info = info;
+    }
+
+    public void setLogPath(String logPath) {
+        this.logPath = logPath;
+    }
+
+    public String getLogPath() {
+        return logPath;
     }
 }

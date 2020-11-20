@@ -26,15 +26,14 @@ import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Collections;
-
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Map.Entry;
-
 import java.util.Set;
+import java.util.Objects;
+import java.util.Map.Entry;
 
 import org.apache.kylin.cube.CubeInstance;
 import org.apache.kylin.cube.CubeManager;
@@ -108,6 +107,7 @@ public class NSparkExecutable extends AbstractExecutable {
         CubeManager cubeMgr = CubeManager.getInstance(KylinConfig.getInstanceFromEnv());
         CubeInstance cube = cubeMgr.getCube(this.getCubeName());
         KylinConfig config = cube.getConfig();
+        this.setLogPath(getSparkDriverLogHdfsPath(context.getConfig()));
         config = wrapConfig(config);
 
         String sparkHome = KylinConfig.getSparkHome();
@@ -189,15 +189,12 @@ public class NSparkExecutable extends AbstractExecutable {
 
     /**
      * generate the spark driver log hdfs path format, json path + timestamp + .log
-     *
-     * @param
-     * @return
      */
-    /*public String getSparkDriverLogHdfsPath(KylinConfig config) {
-        return String.format("%s.%s.log", config.getJobTmpOutputStorePath(getProject(), getId()),
+    public String getSparkDriverLogHdfsPath(KylinConfig config) {
+        return String.format(Locale.ROOT, "%s.%s.log", config.getJobOutputStorePath(getParam(MetadataConstants.P_PROJECT_NAME), getId()),
                 System.currentTimeMillis());
-    }*/
-    
+    }
+
     protected KylinConfig wrapConfig(ExecutableContext context) {
         return wrapConfig(context.getConfig());
     }
@@ -206,15 +203,18 @@ public class NSparkExecutable extends AbstractExecutable {
         String project = getParam(MetadataConstants.P_PROJECT_NAME);
         Preconditions.checkState(StringUtils.isNotBlank(project), "job " + getId() + " project info is empty");
 
+        HashMap<String, String> jobOverrides = new HashMap<>();
         String parentId = getParentId();
-        originalConfig.setProperty("job.id", StringUtils.defaultIfBlank(parentId, getId()));
-        originalConfig.setProperty("job.project", project);
+        jobOverrides.put("job.id", StringUtils.defaultIfBlank(parentId, getId()));
+        jobOverrides.put("job.project", project);
         if (StringUtils.isNotBlank(parentId)) {
-            originalConfig.setProperty("job.stepId", getId());
+            jobOverrides.put("job.stepId", getId());
         }
-        originalConfig.setProperty("user.timezone", KylinConfig.getInstanceFromEnv().getTimeZone());
+        jobOverrides.put("user.timezone", KylinConfig.getInstanceFromEnv().getTimeZone());
+        jobOverrides.put("spark.driver.log4j.appender.hdfs.File",
+                Objects.isNull(this.getLogPath()) ? "null" : this.getLogPath());
 
-        return originalConfig;
+        return KylinConfigExt.createInstance(originalConfig, jobOverrides);
     }
 
     private void killOrphanApplicationIfExists(KylinConfig config, String jobId) {
@@ -271,6 +271,7 @@ public class NSparkExecutable extends AbstractExecutable {
             String cmd = generateSparkCmd(config, hadoopConf, jars, kylinJobJar, appArgs);
             patternedLogger.log("cmd: ");
             patternedLogger.log(cmd);
+            System.out.println(cmd);
 
             CliCommandExecutor exec = new CliCommandExecutor();
             exec.execute(cmd, patternedLogger, jobId);
@@ -302,27 +303,54 @@ public class NSparkExecutable extends AbstractExecutable {
             sparkConfigOverride.put("spark.hadoop.hive.metastore.sasl.enabled", "true");
         }
 
-        String serverIp = "127.0.0.1";
-        try {
-            serverIp = InetAddress.getLocalHost().getHostAddress();
-        } catch (UnknownHostException e) {
-            logger.warn("use the InetAddress get local ip failed!", e);
-        }
+        replaceSparkDriverJavaOpsConfIfNeeded(config, sparkConfigOverride);
+        return sparkConfigOverride;
+    }
 
-        String log4jConfiguration = "file:" + config.getLogSparkPropertiesFile();
-
+    private void replaceSparkDriverJavaOpsConfIfNeeded(KylinConfig config, Map<String, String> sparkConfigOverride) {
         String sparkDriverExtraJavaOptionsKey = "spark.driver.extraJavaOptions";
         StringBuilder sb = new StringBuilder();
         if (sparkConfigOverride.containsKey(sparkDriverExtraJavaOptionsKey)) {
             sb.append(sparkConfigOverride.get(sparkDriverExtraJavaOptionsKey));
         }
 
-        sb.append(String.format(Locale.ROOT, " -Dlog4j.configuration=%s ", log4jConfiguration));
-        sb.append(String.format(Locale.ROOT, " -Dspark.driver.rest.server.ip=%s ", serverIp));
-        sb.append(String.format(Locale.ROOT, " -Dspark.driver.param.taskId=%s ", getId()));
+        String serverIp = "127.0.0.1";
+        try {
+            serverIp = InetAddress.getLocalHost().getHostAddress();
+        } catch (UnknownHostException e) {
+            logger.warn("use the InetAddress get local ip failed!", e);
+        }
+        String serverPort = config.getServerPort();
 
+        String hdfsWorkingDir = config.getHdfsWorkingDirectory();
+
+        String sparkDriverHdfsLogPath = null;
+        if (config instanceof KylinConfigExt) {
+            Map<String, String> extendedOverrides = ((KylinConfigExt) config).getExtendedOverrides();
+            if (Objects.nonNull(extendedOverrides)) {
+                sparkDriverHdfsLogPath = extendedOverrides.get("spark.driver.log4j.appender.hdfs.File");
+            }
+        }
+
+        String log4jConfiguration = "file:" + config.getLogSparkDriverPropertiesFile();
+        sb.append(String.format(Locale.ROOT, " -Dlog4j.configuration=%s ", log4jConfiguration));
+        sb.append(String.format(Locale.ROOT, " -Dkylin.kerberos.enabled=%s ", config.isKerberosEnabled()));
+
+        if (config.isKerberosEnabled()) {
+            sb.append(String.format(Locale.ROOT, " -Dkylin.kerberos.principal=%s ", config.getKerberosPrincipal()));
+            sb.append(String.format(Locale.ROOT, " -Dkylin.kerberos.keytab=%s", config.getKerberosKeytabPath()));
+            if (config.getPlatformZKEnable()) {
+                sb.append(String.format(Locale.ROOT, " -Djava.security.auth.login.config=%s", config.getKerberosJaasConfPath()));
+                sb.append(String.format(Locale.ROOT, " -Djava.security.krb5.conf=%s", config.getKerberosKrb5ConfPath()));
+            }
+        }
+        sb.append(String.format(Locale.ROOT, " -Dkylin.hdfs.working.dir=%s ", hdfsWorkingDir));
+        sb.append(String.format(Locale.ROOT, " -Dspark.driver.log4j.appender.hdfs.File=%s ", sparkDriverHdfsLogPath));
+        sb.append(String.format(Locale.ROOT, " -Dspark.driver.rest.server.ip=%s ", serverIp));
+        sb.append(String.format(Locale.ROOT, " -Dspark.driver.rest.server.port=%s ", serverPort));
+        sb.append(String.format(Locale.ROOT, " -Dspark.driver.param.taskId=%s ", getId()));
+        sb.append(String.format(Locale.ROOT, " -Dspark.driver.local.logDir=%s ", config.getKylinLogDir() + "/spark"));
         sparkConfigOverride.put(sparkDriverExtraJavaOptionsKey, sb.toString());
-        return sparkConfigOverride;
     }
 
     protected String generateSparkCmd(KylinConfig config, String hadoopConf, String jars, String kylinJobJar,
@@ -336,6 +364,7 @@ public class NSparkExecutable extends AbstractExecutable {
         }
         appendSparkConf(sb, "spark.executor.extraClassPath", Paths.get(kylinJobJar).getFileName().toString());
         appendSparkConf(sb, "spark.driver.extraClassPath", kylinJobJar);
+        appendSparkConf(sb, "spark.yarn.dist.files", config.sparkUploadFiles());
 
         if (sparkConfs.containsKey("spark.sql.hive.metastore.jars")) {
             jars = jars + "," + sparkConfs.get("spark.sql.hive.metastore.jars");
