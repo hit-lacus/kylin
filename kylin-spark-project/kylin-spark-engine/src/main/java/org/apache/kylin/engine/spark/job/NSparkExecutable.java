@@ -122,8 +122,8 @@ public class NSparkExecutable extends AbstractExecutable {
         String hadoopConf = System.getProperty("kylin.hadoop.conf.dir");
         logger.info("write hadoop conf is {} ", config.getBuildConf());
         if (!config.getBuildConf().isEmpty()) {
-               logger.info("write hadoop conf is {} ", config.getBuildConf());
-               hadoopConf = config.getBuildConf();
+            logger.info("write hadoop conf is {} ", config.getBuildConf());
+            hadoopConf = config.getBuildConf();
         }
         if (StringUtils.isEmpty(hadoopConf) && !config.isUTEnv() && !config.isZKLocal()) {
             throw new RuntimeException(
@@ -250,7 +250,7 @@ public class NSparkExecutable extends AbstractExecutable {
     }
 
     private ExecuteResult runSparkSubmit(KylinConfig config, String hadoopConf, String jars,
-            String kylinJobJar, String appArgs, String jobId) {
+                                         String kylinJobJar, String appArgs, String jobId) {
         PatternedLogger patternedLogger;
         if (config.isJobLogPrintEnabled()) {
             patternedLogger = new PatternedLogger(logger, new PatternedLogger.ILogListener() {
@@ -302,8 +302,8 @@ public class NSparkExecutable extends AbstractExecutable {
             sparkConfigOverride.put("spark.hadoop.hive.metastore.sasl.enabled", "true");
         }
 
-        replaceSparkDriverJavaOpsConfIfNeeded(true, config, sparkConfigOverride);
-        replaceSparkDriverJavaOpsConfIfNeeded(false, config, sparkConfigOverride);
+        replaceSparkNodeJavaOpsConfIfNeeded(true, config, sparkConfigOverride);
+        replaceSparkNodeJavaOpsConfIfNeeded(false, config, sparkConfigOverride);
         return sparkConfigOverride;
     }
 
@@ -313,13 +313,10 @@ public class NSparkExecutable extends AbstractExecutable {
      * 1. conf/spark-driver-log4j.properties and conf/spark-executor-log4j.properties
      * 2. AbstractHdfsLogAppender
      */
-    private void replaceSparkDriverJavaOpsConfIfNeeded(boolean isDriver, KylinConfig config,
-                                                       Map<String, String> sparkConfigOverride) {
+    private void replaceSparkNodeJavaOpsConfIfNeeded(boolean isDriver, KylinConfig config,
+                                                     Map<String, String> sparkConfigOverride) {
         String sparkNodeExtraJavaOptionsKey = isDriver ? "spark.driver.extraJavaOptions" : "spark.executor.extraJavaOptions";
         StringBuilder sb = new StringBuilder();
-        if (sparkConfigOverride.containsKey(sparkNodeExtraJavaOptionsKey)) {
-            sb.append(sparkConfigOverride.get(sparkNodeExtraJavaOptionsKey));
-        }
 
         String serverIp = "127.0.0.1";
         try {
@@ -329,10 +326,10 @@ public class NSparkExecutable extends AbstractExecutable {
         }
         String serverPort = config.getServerPort();
         String hdfsWorkingDir = config.getHdfsWorkingDirectory();
-        String log4jConfiguration ;
+        String log4jConfiguration;
 
         if (isDriver) {
-            String sparkDriverHdfsLogPath ;
+            String sparkDriverHdfsLogPath;
             if (config instanceof KylinConfigExt) {
                 Map<String, String> extendedOverrides = ((KylinConfigExt) config).getExtendedOverrides();
                 if (Objects.nonNull(extendedOverrides)) {
@@ -350,12 +347,12 @@ public class NSparkExecutable extends AbstractExecutable {
             if (config instanceof KylinConfigExt) {
                 Map<String, String> extendedOverrides = ((KylinConfigExt) config).getExtendedOverrides();
                 if (Objects.nonNull(extendedOverrides)) {
-                    sb.append(" -Dkylin.spark.project=").append(extendedOverrides.get("job.project"));
-                    sb.append(" -Dkylin.spark.jobName=").append(extendedOverrides.get("job.stepId"));
-                    sb.append(" -Dkylin.spark.identifier=").append(extendedOverrides.get("job.id"));
+                    sb.append(String.format(Locale.ROOT, " -Dkylin.spark.project=%s ", extendedOverrides.get("job.project")));
+                    sb.append(String.format(Locale.ROOT, " -Dkylin.spark.jobName=%s ", extendedOverrides.get("job.stepId")));
+                    sb.append(String.format(Locale.ROOT, " -Dkylin.spark.identifier=%s ", extendedOverrides.get("job.id")));
                 }
             }
-            sb.append(" -Dkylin.metadata.identifier=").append(config.getMetadataUrlPrefix());
+            sb.append(String.format(Locale.ROOT, " -Dkylin.metadata.identifier=%s ", config.getMetadataUrlPrefix()));
         }
 
         sb.append(String.format(Locale.ROOT, " -Dkylin.kerberos.enabled=%s ", config.isKerberosEnabled()));
@@ -369,12 +366,16 @@ public class NSparkExecutable extends AbstractExecutable {
         }
         sb.append(String.format(Locale.ROOT, " -Dkylin.hdfs.working.dir=%s ", hdfsWorkingDir));
 
+        if (sparkConfigOverride.containsKey(sparkNodeExtraJavaOptionsKey)) {
+            sb.append(" ").append(sparkConfigOverride.get(sparkNodeExtraJavaOptionsKey));
+        }
+        logger.debug("Final property is set to <<{}>> for {} .", sb.toString(), sparkNodeExtraJavaOptionsKey);
         // Here replace original Java options for Spark node
         sparkConfigOverride.put(sparkNodeExtraJavaOptionsKey, sb.toString());
     }
 
     protected String generateSparkCmd(KylinConfig config, String hadoopConf, String jars, String kylinJobJar,
-            String appArgs) {
+                                      String appArgs) {
         StringBuilder sb = new StringBuilder();
         sb.append("export HADOOP_CONF_DIR=%s && %s/bin/spark-submit --class org.apache.kylin.engine.spark.application.SparkEntry ");
 
@@ -406,7 +407,7 @@ public class NSparkExecutable extends AbstractExecutable {
     private ExecuteResult runLocalMode(String appArgs, KylinConfig config) {
         try {
             Class<? extends Object> appClz = ClassUtil.forName(getSparkSubmitClassName(), Object.class);
-            appClz.getMethod("main", String[].class).invoke(null, (Object) new String[] { appArgs });
+            appClz.getMethod("main", String[].class).invoke(null, (Object) new String[]{appArgs});
             updateMetaAfterOperation(config);
 
             //Add metrics information to execute result for JobMetricsFacade

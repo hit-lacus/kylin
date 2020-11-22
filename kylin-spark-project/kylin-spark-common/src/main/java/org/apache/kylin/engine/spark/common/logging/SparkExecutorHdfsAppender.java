@@ -128,7 +128,7 @@ public class SparkExecutorHdfsAppender extends AbstractHdfsLogAppender {
 
     @Override
     String getAppenderName() {
-        return "SparkExecutorHdfsLogAppender";
+        return "SparkExecutorHdfsAppender";
     }
 
     @Override
