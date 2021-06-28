@@ -35,10 +35,11 @@ object JobWorkSpace extends Logging {
       val worker = new JobWorker(application, appArgs, eventLoop)
       val monitor = new JobMonitor(eventLoop)
       val workspace = new JobWorkSpace(eventLoop, monitor, worker)
-      if (System.getProperty("spark.master").equals("yarn") && System.getProperty("spark.submit.deployMode").equals("cluster")) {
-        workspace.run()
-      } else {
-        System.exit(workspace.run())
+      val statusCode = workspace.run()
+
+      logInfo("Workspace returned with code : " + statusCode + " .")
+      if (statusCode != 0) {
+        System.exit(statusCode)
       }
     } catch {
       case throwable: Throwable =>
@@ -83,10 +84,12 @@ class JobWorkSpace(eventLoop: KylinJobEventLoop, monitor: JobMonitor, worker: Jo
     eventLoop.start()
     eventLoop.post(RunJob())
     latch.await()
+    logInfo("The statusCode is " + statusCode)
     statusCode
   }
 
   def success(): Unit = {
+    logInfo("Received success message.")
     try {
       stop()
     } finally {
@@ -96,6 +99,7 @@ class JobWorkSpace(eventLoop: KylinJobEventLoop, monitor: JobMonitor, worker: Jo
   }
 
   def fail(jf: JobFailed): Unit = {
+    logInfo("Received failed message.")
     try {
       logError(s"Job failed eventually. Reason: ${jf.reason}", jf.throwable)
       KylinBuildEnv.get().buildJobInfos.recordJobRetryInfos(RetryInfo(new util.HashMap, jf.throwable))

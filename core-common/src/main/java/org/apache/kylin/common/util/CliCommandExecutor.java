@@ -93,6 +93,8 @@ public class CliCommandExecutor {
             r = runRemoteCommand(command, logAppender);
         }
 
+        logger.info("Command exited with " + r.getFirst() + " , output is " + r.getSecond());
+
         if (r.getFirst() != 0)
             throw new IOException("OS command error exit with return code: " + r.getFirst() //
                     + ", error message: " + r.getSecond() + "The command is: \n" + command
@@ -164,6 +166,7 @@ public class CliCommandExecutor {
 
             try {
                 int exitCode = proc.waitFor();
+                logger.info("............... " + exitCode);
                 return Pair.newPair(exitCode, result.toString());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

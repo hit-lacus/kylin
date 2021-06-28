@@ -56,7 +56,10 @@ class JobWorker(application: SparkApplication, args: Array[String], eventLoop: K
           eventLoop.post(JobSucceeded())
         } catch {
           case exception: NoRetryException => eventLoop.post(UnknownThrowable(exception))
-          case throwable: Throwable => eventLoop.post(ResourceLack(throwable))
+          case throwable: Throwable => {
+            logError("Catch throwable ", throwable)
+            eventLoop.post(ResourceLack(throwable))
+          }
         }
       }
     })
